@@ -7,6 +7,7 @@ const cors = require("cors");
 const compression = require('compression')
 const bodyParser = require("body-parser");
 const jwt = require("express-jwt");
+const authorizationSchema = require("./authorizationSchema.js"); // Schema for post validation
 
 const app = express(); // Express config
 app.use(cors());
@@ -16,20 +17,21 @@ app.use(bodyParser.json());
 app.use(jwt({ secret: "reactFTW!!!reactFTW!!!reactFTW!!!" }));
 const router = express.Router();
 app.use("/paas", router);
-app.use((err, req, res, next) => { res.status(500).send('Something broke!') });
+app.use((err, req, res, next) => { 
+  if (err.status===401) { res.sendStatus(401); }
+  else { res.status(500).send('Something broke!'); }
+});
 app.listen(5353);
 
 const url = "mongodb://localhost:27017"; // Mongo config
 let users;
 
-const authorizationSchema = require("./authorizationSchema.js"); // Schema for post validation
-
-const getDate = () => new Date().toISOString(); // Get currennt timestamp
+const getDate = () => new Date().toISOString(); // Get current timestamp
 const getAllUsers = () => users.find({}).toArray(); // Get all users
 const getActiveUsers = (userSID) => users.find({ managerSID: userSID, status: "active" }).toArray(); // Get active users by manager
 const getUsers = (userSID) => users.find({ managerSID: userSID }).toArray(); // Get users by manager
 const validatePost = async (authorizations, userSID) => {
-  const { error, value } = joi.validate(authorizations, authorizationSchema);
+  const { error, value } = joi.validate(authorizations, authorizationSchema, { allowUnknown: true });
   if (error) return false;
   const allowedUsers = await getActiveUsers(userSID);
   const keyedAllowedUsers = _.keyBy(allowedUsers, "sid");
