@@ -1,13 +1,13 @@
 const Promise = require("bluebird");
 const _ = require("lodash");
-const MongoClient = require("mongodb").MongoClient;
+const mySQLX = require('@mysql/xdevapi');
 const joi = require('joi');
 const express = require("express");
 const cors = require("cors");
 const compression = require('compression')
 const bodyParser = require("body-parser");
 const jwt = require("express-jwt");
-const authorizationSchema = require("./authorizationSchema.js"); // Schema for post validation
+const authSchema = require("./authSchema.js"); // Schema for post validation
 
 const app = express(); // Express config
 app.use(cors());
@@ -23,48 +23,73 @@ app.use((err, req, res, next) => {
 });
 app.listen(5353);
 
-const url = "mongodb://localhost:27017"; // Mongo config
-let users;
+let db;
 
 const getDate = () => new Date().toISOString(); // Get current timestamp
-const getAllUsers = () => users.find({}).toArray(); // Get all users
-const getActiveUsers = (userSID) => users.find({ managerSID: userSID, status: "active" }).toArray(); // Get active users by manager
-const getUsers = (userSID) => users.find({ managerSID: userSID }).toArray(); // Get users by manager
-const validatePost = async (authorizations, userSID) => {
-  const { error, value } = joi.validate(authorizations, authorizationSchema, { allowUnknown: true });
+const getAllStaff = async () => { // Get all auth records
+  let records = [];
+  await db.find("true").execute((doc) => { if (doc) records.push(doc); });
+  return records;
+}
+const getActiveStaffByManager = async (managerSID) => { // Get active/noManager auth records by manager
+  let records = [];
+  await db.find(`($.status IN ('active','noManager')) && ($.managerSID == ${JSON.stringify(managerSID)})`)
+    .execute((doc) => { if (doc) records.push(doc); });
+  return records;
+}
+const getAllStaffByManager = async (managerSID) => { // Get all auth records by manager
+  let records = [];
+  await db.find(`$.managerSID == ${JSON.stringify(managerSID)}`)
+    .execute((doc) => { if (doc) records.push(doc); });
+  return records;
+}
+const updateStaff = (postedAuth) => {
+  let time = getDate();
+  db.modify(`($.sid == ${JSON.stringify(postedAuth.sid)}) && ($.status == "active")`)
+    .set('$.app1', JSON.stringify(postedAuth.app1)).set('$.app2', JSON.stringify(postedAuth.app2))
+    .set('$.app3', JSON.stringify(postedAuth.app3)).set('$.app4', JSON.stringify(postedAuth.app4))
+    .set('$.lastUpdated', time).set('$.lastApproved', time)
+    .execute();
+}
+const validatePost = async (postedAuths, managerSID) => {
+  const { error, value } = joi.validate(postedAuths, authSchema, { allowUnknown: true });
   if (error) return false;
-  const allowedUsers = await getActiveUsers(userSID);
-  const keyedAllowedUsers = _.keyBy(allowedUsers, "sid");
-  return authorizations.every((approval) => ( keyedAllowedUsers[approval.sid] ))
+  const allowedRecords = await getActiveStaffByManager(managerSID);
+  const keyedAllowedRecords = _.keyBy(allowedRecords, "sid");
+  return postedAuths.every((postedAuth) => ( keyedAllowedRecords[postedAuth.sid] ))
 }
 
 (async () => {
-  const client = await MongoClient.connect(url); // Connect to Mongo
-  users = client.db("paas").collection("users");
+
+	// Connect to MySQL
+  const session = await mySQLX.getSession({ host: 'localhost', port: 33061, dbUser: 'root', dbPassword: '5@nj0$3@', ssl: false });
+  db = session.getSchema('paas').getCollection('authorizations');
+  
   router.route("/") // Routes
-    .get(async (req, res) => { // Get a manager's users
+    .get(async (req, res) => { // Get auth records for a manager's staff
       if (req.user.roles.includes("PAAS Manager")) {
-        let userRecords = await getUsers(req.user.sid);
-        res.json(userRecords);
+        console.time("get");
+        let staffRecords = await getAllStaffByManager(req.user.sid);
+        console.timeEnd("get");
+        res.json(staffRecords);
       } else { res.status(401).send("The user is not a member of the PAAS Managers group."); }
     })
-    .post(async (req, res) => { // Update the authorizations for a manager's users
+    .post(async (req, res) => { // Update the auth records for a manager's staff
       if (req.user.roles.includes("PAAS Manager")) {
         if (await validatePost(req.body, req.user.sid)) {
           let updates = [];
           let time = getDate();
-          req.body.forEach(approval => {
-            updates.push({ updateOne: { filter: { sid: approval.sid, status: "active" }, update: { $set: { app1: approval.app1, app2: approval.app2, app3: approval.app3, app4: approval.app4, lastUpdated: time, lastApproved: time } } } });
-          });
-          await users.bulkWrite(updates);
+          req.body.forEach(postedAuth => updateStaff(postedAuth) );
           res.sendStatus(204);
         } else { res.status(422).send("The request fails validation."); }
       } else { res.status(401).send("The user is not a member of the PAAS Managers group."); }
     });
-  router.route("/reports") // Get all users for reporting
+  router.route("/reports") // Get all auth records for reporting
     .get(async (req, res) => {
       if (req.user.roles.includes("PAAS Reports")) {
-        let userRecords = await getAllUsers();
+        console.time("getAll");
+        let userRecords = await getAllStaff();
+        console.timeEnd("getAll");
         res.json(userRecords);
       } else { res.status(401).send("The user is not a member of the PAAS Reports group."); }
     });
