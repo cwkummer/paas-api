@@ -27,6 +27,12 @@ app.listen(5353);
 let db;
 
 const getDate = () => new Date().toISOString(); // Get current timestamp
+const getAllStaffByManager = async (managerSID) => { // Get all auth records by manager
+  let records = [];
+  await db.find(`$.managerSID == ${JSON.stringify(managerSID)}`)
+    .execute((doc) => { if (doc) records.push(doc); });
+  return records;
+}
 const getAllStaff = async () => { // Get all auth records
   let records = [];
   await db.find("true").execute((doc) => { if (doc) records.push(doc); });
@@ -38,11 +44,12 @@ const getActiveStaffByManager = async (managerSID) => { // Get active/noManager 
     .execute((doc) => { if (doc) records.push(doc); });
   return records;
 }
-const getAllStaffByManager = async (managerSID) => { // Get all auth records by manager
-  let records = [];
-  await db.find(`$.managerSID == ${JSON.stringify(managerSID)}`)
-    .execute((doc) => { if (doc) records.push(doc); });
-  return records;
+const validateAuthorizeStaff = async (postedAuths, managerSID) => { // Returns true if validation passed
+  const { error, value } = joi.validate(postedAuths, authorizeStaffSchema);
+  if (error) return false;
+  const allowedRecords = await getActiveStaffByManager(managerSID);
+  const keyedAllowedRecords = _.keyBy(allowedRecords, "_id");
+  return postedAuths.every((postedAuth) => ( keyedAllowedRecords[postedAuth._id] ))
 }
 const authorizeStaff = (postedAuth) => {
   const time = getDate();
@@ -51,23 +58,18 @@ const authorizeStaff = (postedAuth) => {
     .set('$.app3', postedAuth.app3).set('$.app4', postedAuth.app4)
     .set('$.lastUpdated', time).set('$.lastApproved', time).execute();
 }
-const validateAuthorizeStaff = async (postedRecords, managerSID) => { // Returns true if validation passed
-  const { error, value } = joi.validate(postedRecords, authorizeStaffSchema);
-  if (error) return false;
-  const allowedRecords = await getActiveStaffByManager(managerSID);
-  const keyedAllowedRecords = _.keyBy(allowedRecords, "_id");
-  return postedRecords.every((postedAuth) => ( keyedAllowedRecords[postedAuth._id] ))
+const validateUpdateManager = async (postedUpdates) => { // Returns true if validation passed
+  const { error, value } = joi.validate(postedUpdates, updateManagerSchema);
+  return !error;
 }
-const validateUpdateManager = async (postedRecords) => { // Returns true if validation passed
-  const { error, value } = joi.validate(postedRecords, updateManagerSchema);
-  if (error) return false;
-  // TODO: Validate managerSID and managerFullName
-}
-const updateManager = (postedUpdate) => {
-  const time = getDate();
-  db.modify(`$._id = ${JSON.stringify(postedUpdate._id)}`)
-    .set('$.managerSID', JSON.stringify(postedUpdate.managerSID)).set('$.lastUpdated', time)
-    .set('$.managerFullName', JSON.stringify(postedUpdate.managerFullName)).execute()
+const updateManager = async (postedUpdate) => {
+  let time = getDate(), managerRecord;
+  await db.find(`$._id = ${JSON.stringify(postedUpdate.manager_id)}`)
+    .execute((doc) => { if (doc) managerRecord = doc; });
+  db.modify(`$._id = ${JSON.stringify(postedUpdate.employee_id)}`)
+    .set('$.managerSID', managerRecord.sid).set('$.lastUpdated', time)
+    .set('$.managerFullName', managerRecord.fullName)
+    .set('$.status', "active").execute();
 }
 
 (async () => {
@@ -98,7 +100,7 @@ const updateManager = (postedUpdate) => {
     .post(async (req, res) => { // Update the manager for staff
       if (!req.user.roles.includes("PAAS Security")) return res.sendStatus(401);
       if (!(await validateUpdateManager(req.body))) return res.sendStatus(422);
-      req.body.forEach(postedUpdate => authorizeStaff(postedUpdate));
+      req.body.forEach(postedUpdate => updateManager(postedUpdate));
       return res.sendStatus(204);
     });
 })();

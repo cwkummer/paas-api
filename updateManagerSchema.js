@@ -1,8 +1,7 @@
 const joi = require('joi');
 const updateManager = joi.object().keys({
-  _id: joi.string().hex().length(32).required(),
-  managerFullName: joi.string().required(),
-  managerSID: joi.string().required()
+  employee_id: joi.string().hex().length(32).required(),
+  manager_id: joi.string().hex().length(32).required()
 });
 const updateManagers = joi.array().items(updateManager);
 module.exports = updateManagers;
