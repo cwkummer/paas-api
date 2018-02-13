@@ -4,10 +4,11 @@ const mySQLX = require('@mysql/xdevapi');
 const joi = require('joi');
 const express = require("express");
 const cors = require("cors");
-const compression = require('compression')
+const compression = require('compression');
 const bodyParser = require("body-parser");
 const jwt = require("express-jwt");
-const authSchema = require("./authSchema.js"); // Schema for post validation
+const authorizeStaffSchema = require("./authorizeStaffSchema.js");
+const updateManagerSchema = require("./updateManagerSchema.js");
 
 const app = express(); // Express config
 app.use(cors());
@@ -19,7 +20,7 @@ const router = express.Router();
 app.use("/paas", router);
 app.use((err, req, res, next) => { 
   if (err.status===401) { res.sendStatus(401); }
-  else { res.status(500).send('Something broke!'); }
+  else { res.sendStatus(500); }
 });
 app.listen(5353);
 
@@ -43,20 +44,30 @@ const getAllStaffByManager = async (managerSID) => { // Get all auth records by 
     .execute((doc) => { if (doc) records.push(doc); });
   return records;
 }
-const updateStaff = (postedAuth) => {
-  let time = getDate();
-  db.modify(`($.sid == ${JSON.stringify(postedAuth.sid)}) && ($.status == "active")`)
-    .set('$.app1', JSON.stringify(postedAuth.app1)).set('$.app2', JSON.stringify(postedAuth.app2))
-    .set('$.app3', JSON.stringify(postedAuth.app3)).set('$.app4', JSON.stringify(postedAuth.app4))
-    .set('$.lastUpdated', time).set('$.lastApproved', time)
-    .execute();
+const authorizeStaff = (postedAuth) => {
+  const time = getDate();
+  const query = db.modify(`$._id = ${JSON.stringify(postedAuth._id)}`)
+    .set('$.app1', postedAuth.app1).set('$.app2', postedAuth.app2)
+    .set('$.app3', postedAuth.app3).set('$.app4', postedAuth.app4)
+    .set('$.lastUpdated', time).set('$.lastApproved', time).execute();
 }
-const validatePost = async (postedAuths, managerSID) => {
-  const { error, value } = joi.validate(postedAuths, authSchema, { allowUnknown: true });
+const validateAuthorizeStaff = async (postedRecords, managerSID) => { // Returns true if validation passed
+  const { error, value } = joi.validate(postedRecords, authorizeStaffSchema);
   if (error) return false;
   const allowedRecords = await getActiveStaffByManager(managerSID);
-  const keyedAllowedRecords = _.keyBy(allowedRecords, "sid");
-  return postedAuths.every((postedAuth) => ( keyedAllowedRecords[postedAuth.sid] ))
+  const keyedAllowedRecords = _.keyBy(allowedRecords, "_id");
+  return postedRecords.every((postedAuth) => ( keyedAllowedRecords[postedAuth._id] ))
+}
+const validateUpdateManager = async (postedRecords) => { // Returns true if validation passed
+  const { error, value } = joi.validate(postedRecords, updateManagerSchema);
+  if (error) return false;
+  // TODO: Validate managerSID and managerFullName
+}
+const updateManager = (postedUpdate) => {
+  const time = getDate();
+  db.modify(`$._id = ${JSON.stringify(postedUpdate._id)}`)
+    .set('$.managerSID', JSON.stringify(postedUpdate.managerSID)).set('$.lastUpdated', time)
+    .set('$.managerFullName', JSON.stringify(postedUpdate.managerFullName)).execute()
 }
 
 (async () => {
@@ -65,32 +76,29 @@ const validatePost = async (postedAuths, managerSID) => {
   const session = await mySQLX.getSession({ host: 'localhost', port: 33061, dbUser: 'root', dbPassword: '5@nj0$3@', ssl: false });
   db = session.getSchema('paas').getCollection('authorizations');
   
-  router.route("/") // Routes
+  router.route("/auth")
     .get(async (req, res) => { // Get auth records for a manager's staff
-      if (req.user.roles.includes("PAAS Manager")) {
-        console.time("get");
-        let staffRecords = await getAllStaffByManager(req.user.sid);
-        console.timeEnd("get");
-        res.json(staffRecords);
-      } else { res.status(401).send("The user is not a member of the PAAS Managers group."); }
+      if (!req.user.roles.includes("PAAS Manager")) return res.sendStatus(401);
+      let staffRecords = await getAllStaffByManager(req.user.sid);
+      return res.json(staffRecords);
     })
     .post(async (req, res) => { // Update the auth records for a manager's staff
-      if (req.user.roles.includes("PAAS Manager")) {
-        if (await validatePost(req.body, req.user.sid)) {
-          let updates = [];
-          let time = getDate();
-          req.body.forEach(postedAuth => updateStaff(postedAuth) );
-          res.sendStatus(204);
-        } else { res.status(422).send("The request fails validation."); }
-      } else { res.status(401).send("The user is not a member of the PAAS Managers group."); }
+      if (!req.user.roles.includes("PAAS Manager")) return res.sendStatus(401);
+      if (!(await validateAuthorizeStaff(req.body, req.user.sid))) return res.sendStatus(422);
+      req.body.forEach(postedAuth => authorizeStaff(postedAuth));
+      return res.sendStatus(204);
     });
-  router.route("/reports") // Get all auth records for reporting
-    .get(async (req, res) => {
-      if (req.user.roles.includes("PAAS Reports")) {
-        console.time("getAll");
-        let userRecords = await getAllStaff();
-        console.timeEnd("getAll");
-        res.json(userRecords);
-      } else { res.status(401).send("The user is not a member of the PAAS Reports group."); }
+  router.route("/report")
+    .get(async (req, res) => { // Get all auth records for reporting
+      if (!req.user.roles.some(role => role === "PAAS Security" || role === "PAAS HR")) return res.sendStatus(401);
+      let userRecords = await getAllStaff();
+      return res.json(userRecords);
+    });
+  router.route("/manager")
+    .post(async (req, res) => { // Update the manager for staff
+      if (!req.user.roles.includes("PAAS Security")) return res.sendStatus(401);
+      if (!(await validateUpdateManager(req.body))) return res.sendStatus(422);
+      req.body.forEach(postedUpdate => authorizeStaff(postedUpdate));
+      return res.sendStatus(204);
     });
 })();

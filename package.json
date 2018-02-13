@@ -11,13 +11,14 @@
   "author": "Chris Kummer",
   "license": "MIT",
   "dependencies": {
-    "@mysql/xdevapi": "8.0.8",
+    "@mysql/xdevapi": "8.0.9",
     "bluebird": "3.5.1",
     "body-parser": "1.18.2",
     "compression": "1.7.1",
     "cors": "2.8.4",
     "express": "4.16.2",
     "express-jwt": "5.3.0",
-    "lodash": "4.17.4"
+    "joi": "13.1.2",
+    "lodash": "4.17.5"
   }
 }
