@@ -53,7 +53,7 @@ const validateAuthorizeStaff = async (postedAuths, managerSID) => { // Returns t
 }
 const authorizeStaff = (postedAuth) => {
   const time = getDate();
-  const query = db.modify(`$._id = ${JSON.stringify(postedAuth._id)}`)
+  db.modify(`$._id = ${JSON.stringify(postedAuth._id)}`)
     .set('$.app1', postedAuth.app1).set('$.app2', postedAuth.app2)
     .set('$.app3', postedAuth.app3).set('$.app4', postedAuth.app4)
     .set('$.lastUpdated', time).set('$.lastApproved', time).execute();
@@ -66,10 +66,10 @@ const updateManager = async (postedUpdate) => {
   let time = getDate(), managerRecord;
   await db.find(`$._id = ${JSON.stringify(postedUpdate.manager_id)}`)
     .execute((doc) => { if (doc) managerRecord = doc; });
-  db.modify(`$._id = ${JSON.stringify(postedUpdate.employee_id)}`)
+  if (managerRecord) db.modify(`$._id = ${JSON.stringify(postedUpdate.employee_id)}`)
     .set('$.managerSID', managerRecord.sid).set('$.lastUpdated', time)
     .set('$.managerFullName', managerRecord.fullName)
-    .set('$.status', "active").execute();
+    .set('$.status', 'assignedManager').execute();
 }
 
 (async () => {
