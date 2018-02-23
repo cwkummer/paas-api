@@ -40,7 +40,7 @@ const getAllStaff = async () => { // Get all auth records
 }
 const getActiveStaffByManager = async (managerSID) => { // Get active/noManager auth records by manager
   let records = [];
-  await db.find(`($.status IN ('active','noManager')) && ($.managerSID == ${JSON.stringify(managerSID)})`)
+  await db.find(`($.status IN ('active','assignedManager')) && ($.managerSID == ${JSON.stringify(managerSID)})`)
     .execute((doc) => { if (doc) records.push(doc); });
   return records;
 }
