@@ -1,5 +1,5 @@
 const joi = require('joi');
-const authorizeStaff = joi.object().keys({
+const authorizeStaff = joi.object({
   _id: joi.string().hex().length(32).required(),
   app1: joi.string().valid("0", "1").required(),
   app2: joi.string().valid("0", "1").required(),

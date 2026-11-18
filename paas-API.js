@@ -1,12 +1,11 @@
 const Promise = require("bluebird");
 const _ = require("lodash");
 const mySQLX = require('@mysql/xdevapi');
-const joi = require('joi');
 const express = require("express");
 const cors = require("cors");
 const compression = require('compression');
 const bodyParser = require("body-parser");
-const jwt = require("express-jwt");
+const { expressjwt: jwt } = require("express-jwt");
 const authorizeStaffSchema = require("./authorizeStaffSchema.js");
 const updateManagerSchema = require("./updateManagerSchema.js");
 
@@ -15,7 +14,7 @@ app.use(cors());
 app.use(compression());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(jwt({ secret: "reactFTW!!!reactFTW!!!reactFTW!!!" }));
+app.use(jwt({ secret: "reactFTW!!!reactFTW!!!reactFTW!!!", algorithms: ["HS256"], requestProperty: "user" }));
 const router = express.Router();
 app.use("/paas", router);
 app.use((err, req, res, next) => { 
@@ -45,7 +44,7 @@ const getActiveStaffByManager = async (managerSID) => { // Get active/noManager 
   return records;
 }
 const validateAuthorizeStaff = async (postedAuths, managerSID) => { // Returns true if validation passed
-  const { error, value } = joi.validate(postedAuths, authorizeStaffSchema);
+  const { error, value } = authorizeStaffSchema.validate(postedAuths);
   if (error) return false;
   const allowedRecords = await getActiveStaffByManager(managerSID);
   const keyedAllowedRecords = _.keyBy(allowedRecords, "_id");
@@ -59,7 +58,7 @@ const authorizeStaff = (postedAuth) => {
     .set('$.lastUpdated', time).set('$.lastApproved', time).execute();
 }
 const validateUpdateManager = async (postedUpdates) => { // Returns true if validation passed
-  const { error, value } = joi.validate(postedUpdates, updateManagerSchema);
+  const { error, value } = updateManagerSchema.validate(postedUpdates);
   return !error;
 }
 const updateManager = async (postedUpdate) => {
